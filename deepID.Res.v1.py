@@ -41,7 +41,7 @@ def read_data(trX,trY,batch_size):
 	return x_collection,y_collection
 
 
-def cnn_ectraction(x, drop,n_input):
+def cnn_ectraction(x, drop,n_input,global_mean_var=None):
 	epsilon = 0.001
 	input_layer = tf.reshape(x, [-1, n_input, 1])
 	regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
@@ -147,7 +147,7 @@ IDclass = tf.arg_max(pred, 1, name='IDclass')
 
 onehot_labels = tf.one_hot(indices=tf.cast(y, tf.int32), depth=n_classes)
 #cost = tf.losses.softmax_cross_entropy(onehot_labels=onehot_labels, logits=pred)
-cost = tf.losses.sigmoid_cross_entropy(onehot_labels, logits=pred) + 0.3*tf.nn.l2_loss(k2) + 0.3*tf.nn.l2_loss(k31) + 0.3*tf.nn.l2_loss(k32)  
+cost = tf.losses.sigmoid_cross_entropy(onehot_labels, logits=pred) + 0.2*(tf.nn.l2_loss(k2) + tf.nn.l2_loss(k31) + tf.nn.l2_loss(k32))
 #optimizer = tf.train.AdagradOptimizer(learning_rate=learning_rate).minimize(cost)
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
@@ -190,7 +190,7 @@ with tf.Session() as sess:
 			#	print batch_y.shape
 			#	print batch_y[0:3]			
 	
-				_op = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, keep_prob: 0})
+				_op = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, keep_prob: 0.2})
 				#_op,loss,acc,output = sess.run((optimizer,cost,accuracy,output2), feed_dict={x: batch_x, y: batch_y, keep_prob: dropout})
 
 #			if step % 10 == 0:
@@ -201,9 +201,9 @@ with tf.Session() as sess:
 			print "Epoch %d/%d - loss: %s - acc: %s\tvalidation acc: %s\t%s" % (step,epochs,str(loss),str(acc),str(val_acc),str(val_acc2))
 #			print "Epoch %d/%d - loss: %s - acc: %s\tvalidation acc: %s" % (step,epochs,str(loss),str(acc),str(val_acc))
 		
-			if step == 500:	
+			if val_acc2 > 0.4:	
 					output_graph_def = graph_util.convert_variables_to_constants(sess, sess.graph_def,output_node_names=["inputx", "inputy", 'keep_prob',  'features','IDclass'])
-					with tf.gfile.FastGFile('./resNet.500.v1.pb', mode='wb') as f:
+					with tf.gfile.FastGFile('./resNet.acc40.v1.pb', mode='wb') as f:
 						f.write(output_graph_def.SerializeToString())
 	print("Optimization Finished!")
 	output_graph_def = graph_util.convert_variables_to_constants(sess, sess.graph_def,output_node_names=["inputx", "inputy", 'keep_prob',  'features','IDclass'])
