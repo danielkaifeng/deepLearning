@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import random
 from sys import argv
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
 sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 from tensorflow.python.framework import graph_util
 
@@ -17,6 +17,8 @@ x = tf.placeholder(tf.float32, [None, n_input], name="inputx")
 y = tf.placeholder(tf.int32, [None], name="inputy")
 train_flag = tf.placeholder(tf.bool, name="is_train")
 keep_prob = tf.placeholder(tf.float32, name="keep_prob")
+#feature_obtained = tf.placeholder(tf.float32, [None,50], name="features")
+
 
 def read_data(trX,trY,batch_size):
 	rg_x = range(trX.shape[0])
@@ -49,16 +51,19 @@ select2 = [j for j in rg if j not in select]
 trX = trX[select2,]
 trY = trY[select2,]
 n_classes = len(set(trY))
+#n_classes = 220
 
 # model function from resnet module
-with tf.device('/gpu:1'):
-		pred, dense,kernel = cnn_ectraction(x, keep_prob,n_input,is_train=train_flag,n_classes=n_classes)
+#for d in ['/gpu:0','/gpu:1']:
+#with tf.device('/gpu:0'):
+if 1>0:
+		pred, dense,kernel,log = cnn_ectraction(x, keep_prob,n_input,train_flag,n_classes=n_classes)
 		k1,k2,k31,k32 = kernel
 
 		feature_obtained = tf.concat(dense, 1, name="features")
 		IDclass = tf.arg_max(pred, 1, name='IDclass')
 
-#with tf.device('/gpu:0'):
+#with tf.device('/gpu:1'):
 		onehot_labels = tf.one_hot(indices=tf.cast(y, tf.int32), depth=n_classes)
 		cost = tf.losses.sigmoid_cross_entropy(onehot_labels, logits=pred) + 0.01*(tf.nn.l2_loss(k1) + tf.nn.l2_loss(k2) + tf.nn.l2_loss(k31) + tf.nn.l2_loss(k32))
 		#optimizer = tf.train.AdagradOptimizer(learning_rate=learning_rate).minimize(cost)
@@ -68,39 +73,40 @@ with tf.device('/gpu:1'):
 		accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="accuracy")
 
 
-epochs = 1000
+
+epochs = 400
 prefix = argv[3]
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
+	train_writer = tf.summary.FileWriter('log/train',sess.graph)
 
 	for step in range(epochs):
-			x_collection, y_collection = read_data(trX,trY,500)
+			x_collection, y_collection = read_data(trX,trY,300)
 			
 			for n in range(len(x_collection)):
 				batch_x = x_collection[n]
 				batch_y = y_collection[n]
 
-				sess.run(optimizer, feed_dict={x: batch_x, y: batch_y,	train_flag: True, keep_prob: 0.1})
+				_op,log_info = sess.run((optimizer,log), feed_dict={x: batch_x, y: batch_y,	train_flag: True, keep_prob: 0.2})
 				#_op,loss,acc,output = sess.run((optimizer,cost,accuracy,output2), feed_dict={x: batch_x, y: batch_y, keep_prob: dropout})
-
 #			if step % 10 == 0:
-			loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
+			loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y,train_flag: False})
 			val_acc,IDc1 = sess.run((accuracy,IDclass), feed_dict={x: test_x, y: test_y, train_flag: False})
 			val_acc2,IDc2 = sess.run((accuracy,IDclass), feed_dict={x: test_x2, y: test_y2, train_flag: False})
 				
 			print "Epoch %d/%d - loss: %s - acc: %s\tvalidation acc: %s\t%s" % (step,epochs,str(loss),str(acc),str(val_acc),str(val_acc2))
 #			print "Epoch %d/%d - loss: %s - acc: %s\tvalidation acc: %s" % (step,epochs,str(loss),str(acc),str(val_acc))
 		
-			if val_acc2 > 0.35:	
+			if val_acc2 > 0.45:	
 					output_graph_def = graph_util.convert_variables_to_constants(sess, sess.graph_def,output_node_names=["inputx", "inputy", 'keep_prob',  'features','IDclass','is_train'])
-					with tf.gfile.FastGFile('./%s.resNet.acc%f.pb' %(prefix,acc), mode='wb') as f:
+					with tf.gfile.FastGFile('./%s.resNet.acc%f.pb' %(prefix,val_acc2), mode='wb') as f:
 						f.write(output_graph_def.SerializeToString())
-					exit(0)
+#					exit(0)
 
 	output_graph_def = graph_util.convert_variables_to_constants(sess, sess.graph_def,
 					output_node_names=["inputx", "inputy", 'keep_prob',  'features','IDclass','is_train'])
 
-	with tf.gfile.FastGFile('./%s.resNet.epoch%d.pb' % (prefix,acc), mode='wb') as f:
+	with tf.gfile.FastGFile('./%s.resNet.epoch%d.pb' % (prefix,epochs), mode='wb') as f:
 		f.write(output_graph_def.SerializeToString())
 
 

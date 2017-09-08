@@ -44,24 +44,6 @@ def output_layer(input_layer, num_labels):
 	return fc_h
 
 
-def conv_bn_relu_layer(input_layer, filter_shape, stride):
-	'''
-	A helper function to conv, batch normalize and relu the input tensor sequentially
-	:param input_layer: 4D tensor
-	:param filter_shape: list. [filter_height, filter_width, filter_depth, filter_number]
-	:param stride: stride size for conv
-	:return: 4D tensor. Y = Relu(batch_normalize(conv(X)))
-	'''
-
-	out_channel = filter_shape[-1]
-	filter = create_variables(name='conv', shape=filter_shape)
-
-	conv_layer = tf.nn.conv1d(input_layer, filter, stride=stride, padding='SAME')
-	bn_layer = batch_normalization_layer(conv_layer, out_channel)
-
-	output = tf.nn.relu(bn_layer)
-	return output
-
 
 def residual_block(input_layer, output_channel,is_train):
 	input_channel = input_layer.get_shape().as_list()[-1]
@@ -75,13 +57,13 @@ def residual_block(input_layer, output_channel,is_train):
 	else:
 		raise ValueError('Output and input channel does not match in residual blocks!!!')
 
-
 #	bn_layer = tf.layers.batch_normalization(input_layer,axis=-1,momentum=0.99,epsilon=0.001,training=is_train)
 	if tf.equal(is_train,tf.constant(True)) is not None:
 		TF = True
 	else:
 		TF = False
-	bn_layer = tf.contrib.layers.batch_norm(input_layer,is_training=TF)
+#	bn_layer = tf.contrib.layers.batch_norm(input_layer,is_training=TF)
+	bn_layer = tf.layers.batch_normalization(input_layer,training=TF)
 	with tf.variable_scope('conv1_in_block'):
 		conv1 = tf.layers.conv1d(bn_layer,filters=output_channel,kernel_size=5,padding="same",activation=tf.nn.tanh,strides=stride)
 
@@ -99,36 +81,36 @@ def residual_block(input_layer, output_channel,is_train):
 
 def cnn_ectraction(x, drop,n_input,is_train,n_classes):
 	input_layer = tf.reshape(x, [-1, n_input, 1])
-	regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
-
-	conv1_1 = tf.layers.conv1d(inputs=input_layer,filters=80,kernel_size=11,
+	regularizer = tf.contrib.layers.l2_regularizer(scale=0.001)
+	
+	conv1_1 = tf.layers.conv1d(inputs=input_layer,filters=120,kernel_size=11,
 			kernel_regularizer = regularizer,
 			bias_regularizer = regularizer,
 			padding="same",	activation=tf.nn.tanh,name='conv1')
-	conv1_2 = tf.layers.conv1d(inputs=conv1_1,filters=80,kernel_size=11,
+	conv1_2 = tf.layers.conv1d(inputs=conv1_1,filters=120,kernel_size=11,
 			kernel_regularizer = regularizer,
 			bias_regularizer = regularizer,
 			padding="same",	activation=tf.nn.tanh)
 	pool1 = tf.layers.max_pooling1d(inputs=conv1_2, pool_size=4, strides=4)
 
-	conv2_1 = tf.layers.conv1d(inputs=pool1,filters=30,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv2')
-	conv2_2 = tf.layers.conv1d(inputs=conv2_1,filters=30,kernel_size=13,padding="same",activation=tf.nn.tanh)
+	conv2_1 = tf.layers.conv1d(inputs=pool1,filters=80,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv2')
+	conv2_2 = tf.layers.conv1d(inputs=conv2_1,filters=80,kernel_size=13,padding="same",activation=tf.nn.tanh)
 	pool2_1 = tf.layers.max_pooling1d(inputs=conv2_2, pool_size=4, strides=4)
 
 	num_channel = pool2_1.get_shape().as_list()[-1]
 
 	layers = [pool2_1]
-	for ri in range(4):
+	for ri in range(2):
 		with tf.variable_scope('conv_res_1%d' % ri, reuse=False):
 			res_conv = residual_block(layers[-1], num_channel,is_train)
 			layers.append(res_conv)
-
-	for ri in range(4):
+	
+	for ri in range(2):
 		with tf.variable_scope('conv_res_2%d' % ri, reuse=False):
 			res_conv = residual_block(layers[-1], num_channel*2,is_train)
 			layers.append(res_conv)
 
-	for ri in range(4):
+	for ri in range(2):
 		with tf.variable_scope('conv_res_3%d' % ri, reuse=False):
 			res_conv = residual_block(layers[-1], num_channel*4,is_train)
 			layers.append(res_conv)
@@ -136,9 +118,9 @@ def cnn_ectraction(x, drop,n_input,is_train,n_classes):
 #	activation_summary(pool222)
 #	assert conv3.get_shape().as_list()[1:] == [8, 8, 64]
 	
-	dropout2 = tf.layers.dropout(inputs=res_layer, rate=drop)
+#	dropout2 = tf.layers.dropout(inputs=res_layer, rate=drop)
 
-	conv3_1 = tf.layers.conv1d(inputs=dropout2,filters=20,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv3_1')
+	conv3_1 = tf.layers.conv1d(inputs=res_layer,filters=20,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv3_1')
 	conv3_2 = tf.layers.conv1d(inputs=conv3_1,filters=20,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv3_2')
 	pool3 = tf.layers.max_pooling1d(inputs=conv3_2, pool_size=4, strides=4)
 
@@ -156,14 +138,15 @@ def cnn_ectraction(x, drop,n_input,is_train,n_classes):
 	dropout5 = tf.layers.dropout(inputs=dense1, rate=drop)
 	
 	dense2 = tf.layers.dense(inputs=dropout5, units=n_classes)
-	logit = tf.nn.softmax(dense2)
+#	logit = tf.nn.softmax(dense2)
+	logit = dense2
 
 	kernel1 = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'conv1/kernel')[0]
 	kernel2 = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'conv2/kernel')[0]
 	kernel3_1 = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'conv3_1/kernel')[0]
 	kernel3_2 = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'conv3_2/kernel')[0]
 
-	return logit,dense1,(kernel1,kernel2,kernel3_1,kernel3_2)
+	return logit,dense1,(kernel1,kernel2,kernel3_1,kernel3_2),(drop,is_train)
 
 
 
