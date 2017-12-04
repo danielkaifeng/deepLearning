@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import random
 from sys import argv
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
-sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+#gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+#sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
 from tensorflow.python.framework import graph_util
 
@@ -17,7 +17,8 @@ AF_TRAINING = argv[1]
 AF_TEST = argv[2]
 
 n_input = 5120
-learning_rate = 0.001
+learning_rate = 0.0002
+learning_rate2 = 0.0001
 x = tf.placeholder(tf.float32, [None, n_input], name="inputx")
 y = tf.placeholder(tf.int32, [None], name="inputy")
 keep_prob = tf.placeholder(tf.float32, name="keep_prob")
@@ -124,11 +125,11 @@ def cnn_ectraction(x, drop,n_input,is_train):
 	input_layer = tf.reshape(x, [-1, n_input, 1])
 	regularizer = tf.contrib.layers.l2_regularizer(scale=0.5)
 
-	conv1_1 = tf.layers.conv1d(inputs=input_layer,filters=100,kernel_size=11,
+	conv1_1 = tf.layers.conv1d(inputs=input_layer,filters=64,kernel_size=11,
 			kernel_regularizer = regularizer,
 			bias_regularizer = regularizer,
 			padding="same",	activation=tf.nn.tanh,name='conv1')
-	conv1_2 = tf.layers.conv1d(inputs=conv1_1,filters=100,kernel_size=11,
+	conv1_2 = tf.layers.conv1d(inputs=conv1_1,filters=64,kernel_size=11,
 			kernel_regularizer = regularizer,
 			bias_regularizer = regularizer,
 			padding="same",	activation=tf.nn.tanh)
@@ -143,8 +144,8 @@ def cnn_ectraction(x, drop,n_input,is_train):
 #					lambda: tf.contrib.layers.batch_norm(dropout1, is_training=False))
 	bn1 = batch_norm(pool1, is_train, scope='bn1')
 
-	conv2_1 = tf.layers.conv1d(inputs=bn1,filters=80,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv2')
-	conv2_2 = tf.layers.conv1d(inputs=conv2_1,filters=80,kernel_size=13,padding="same",activation=tf.nn.tanh)
+	conv2_1 = tf.layers.conv1d(inputs=bn1,filters=64,kernel_size=13,padding="same",activation=tf.nn.tanh,name='conv2')
+	conv2_2 = tf.layers.conv1d(inputs=conv2_1,filters=64,kernel_size=13,padding="same",activation=tf.nn.tanh)
 	pool2_1 = tf.layers.max_pooling1d(inputs=conv2_2, pool_size=2, strides=2)
 
 	conv2_3 = tf.layers.conv1d(inputs=pool2_1,filters=50,kernel_size=13,padding="same",activation=tf.nn.tanh)
@@ -171,7 +172,7 @@ def cnn_ectraction(x, drop,n_input,is_train):
 	
 	pool_flat = tf.reshape(dropout4, [-1, int((n_input/256) * 30) ])
 
-	dense1 = tf.layers.dense(inputs=pool_flat, units=100, activation=tf.nn.tanh)
+	dense1 = tf.layers.dense(inputs=pool_flat, units=30, activation=tf.nn.tanh)
 #	dropout1 = tf.layers.dropout(inputs=dense0, rate=drop)
 #	dense = tf.layers.dense(inputs=dropout1, units=2, activation=tf.nn.tanh)
 
@@ -216,7 +217,7 @@ n_classes = len(set(trY))
 print "n_classes: %d" % n_classes
 
 
-#with tf.device('/gpu:0'):
+#with tf.device('/gpu:1'):
 if 1>0:
 		pred, dense,kernel = cnn_ectraction(x, keep_prob,n_input,train_flag)
 		k1,k2,k31,k32 = kernel
@@ -230,6 +231,7 @@ if 1>0:
 		cost = tf.losses.sigmoid_cross_entropy(onehot_labels, logits=pred) + 0.3*tf.nn.l2_loss(k2) + 0.3*tf.nn.l2_loss(k31) + 0.3*tf.nn.l2_loss(k32)  
 		#optimizer = tf.train.AdagradOptimizer(learning_rate=learning_rate).minimize(cost)
 		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+		optimizer2 = tf.train.AdamOptimizer(learning_rate=learning_rate2).minimize(cost)
 
 		correct_pred = tf.equal(tf.arg_max(pred, 1), tf.arg_max(onehot_labels, 1))
 		accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="accuracy")
@@ -239,7 +241,7 @@ if 1>0:
 saver=tf.train.Saver()
 prefix = argv[3]
 epochs = 50000
-read_log = False
+read_log = True
 with tf.Session() as sess:
 	sess.run(init)
 	#train_writer = tf.summary.FileWriter('log/train',sess.graph)
@@ -250,23 +252,27 @@ with tf.Session() as sess:
 				print point
 				saver.restore(sess,"log2/%s"%point)	
 
-
+	val_acc2 = 0
 	for step in range(epochs):
-			x_collection, y_collection = read_data(trX,trY,300)
+			x_collection, y_collection = read_data(trX,trY,200)
 			
 			for n in range(len(x_collection)):
 				batch_x = x_collection[n]
 				batch_y = y_collection[n]
-	
-				_op = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, keep_prob: 0.3, train_flag: True})
+				
+				if val_acc2 > 0.42:
+					_op = sess.run(optimizer2, feed_dict={x: batch_x, y: batch_y, keep_prob: 0.3, train_flag: True})
+				else:
+					_op = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, keep_prob: 0.3, train_flag: True})
 				#_op,loss,acc,output = sess.run((optimizer,cost,accuracy,output2), feed_dict={x: batch_x, y: batch_y, keep_prob: dropout})
 
-			if step % 50 == 0:
-				checkpoint_filepath='log2/train-%d.ckpt' % step
-				saver.save(sess,checkpoint_filepath)
 			loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, train_flag: False})
 			val_acc,IDc1 = sess.run((accuracy,IDclass), feed_dict={x: test_x, y: test_y, keep_prob: 0, train_flag: False})
 			val_acc2,IDc2 = sess.run((accuracy,IDclass), feed_dict={x: test_x2, y: test_y2, keep_prob: 0, train_flag: False})
+
+			if val_acc2 > 0.3:
+				checkpoint_filepath='log2/train-%d_acc%f.ckpt' % (step,val_acc2)
+				saver.save(sess,checkpoint_filepath)
 				
 			print "Epoch %d/%d - loss: %s - acc: %s\tvalidation acc: %s\t%s" % (step,epochs,str(loss),str(acc),str(val_acc),str(val_acc2))
 			if val_acc2 > 0.5:	
